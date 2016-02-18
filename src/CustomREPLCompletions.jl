@@ -18,8 +18,12 @@ function custom_complete_methods(ex_org::Expr)
     (!found || (found && !isa(func,Function))) && return false, UTF8String[]
     args_ex = DataType[Base.REPLCompletions.get_type(ex_org.args[1],Main)[1]]
     for ex in ex_org.args[2:end]
-    val, found = Base.REPLCompletions.get_type(ex, Main)
+      if should_evaluate(ex)
+        val, found = Base.REPLCompletions.get_type(ex, Main)
         push!(args_ex, val)
+      else
+        push!(args_ex,Void)
+      end  
     end
     t_in = Tuple{args_ex...} # Input types
     if method_exists(custom_completions,t_in)
@@ -69,7 +73,7 @@ function find_start_brace_or_bracket(s::AbstractString)
         braces == 1 && break
         brackets == 1 && break
     end
-    braces != 1 && brackets!= 1 && return 0:-1, -1
+    braces != 1 && brackets!= 1 && return 0:-1, -1, true
     method_name_end = reverseind(r, i)
     startind = nextind(s, rsearch(s, Base.REPLCompletions.non_identifier_chars, method_name_end))
     return startind:endof(s), method_name_end, braces==1 ? true : false
@@ -97,6 +101,7 @@ function Base.REPLCompletions.completions(string::AbstractString, pos)
             end
         end
         frange, method_name_end, is_brace = find_start_brace_or_bracket(newpartial)
+        if frange!=0:-1
         ex = Base.syntax_deprecation_warnings(false) do
             is_brace ? parse(newpartial[frange] * ")", raise=false) : parse(newpartial[frange] * "]", raise=false)
         end
@@ -116,6 +121,7 @@ function Base.REPLCompletions.completions(string::AbstractString, pos)
                 isempty(suggestions) || return suggestions, r, true
             end
         end
+      end
     end
 
 
