@@ -4,9 +4,17 @@ module CustomREPLCompletions
 # Function that looks for custom completions for specific function. Look at examples.jl for examples.
 function custom_completions end
 
+should_evaluate(ex)=true #Numbers, symbols, QuoteNodes etc
+function should_evaluate(ex::Expr)
+  if ex.head==:(.)
+    should_evaluate(ex.args[2])
+  end
+  return false
+end
 
 function custom_complete_methods(ex_org::Expr)
-func, found = Base.REPLCompletions.get_value(ex_org.args[1], Main)
+  should_evaluate(ex_org.args[1]) || return false, UTF8String[]
+  func, found = Base.REPLCompletions.get_value(ex_org.args[1], Main)
     (!found || (found && !isa(func,Function))) && return false, UTF8String[]
     args_ex = DataType[Base.REPLCompletions.get_type(ex_org.args[1],Main)[1]]
     for ex in ex_org.args[2:end]
@@ -15,7 +23,7 @@ func, found = Base.REPLCompletions.get_value(ex_org.args[1], Main)
     end
     t_in = Tuple{args_ex...} # Input types
     if method_exists(custom_completions,t_in)
-        args_val=[Base.REPLCompletions.get_value(ex_org.args[i],Main)[1] for i=2:length(args_ex)]
+        args_val=[should_evaluate(ex_org.args[i]) ? Base.REPLCompletions.get_value(ex_org.args[i],Main)[1] : nothing for i=2:length(args_ex)]
         return true, custom_completions(func,args_val...)
     end
     return false, UTF8String[]
