@@ -1,6 +1,7 @@
-__precompile__()
+#__precompile__()
 module CustomREPLCompletions
 
+# Function that looks for custom completions for specific function. Look at examples.jl for examples.
 function custom_completions end
 
 
@@ -20,13 +21,62 @@ func, found = Base.REPLCompletions.get_value(ex_org.args[1], Main)
     return false, UTF8String[]
 end
 
-function Base.REPLCompletions.completions(string, pos)
+#This is a modified version of Base that also finds square brackets
+function find_start_brace_or_bracket(s::AbstractString)
+    braces = 0
+    brackets = 0
+    r = RevString(s)
+    i = start(r)
+    in_single_quotes = false
+    in_double_quotes = false
+    in_back_ticks = false
+    in_brackets  = false
+    while !done(r, i)
+        c, i = next(r, i)
+        if !in_single_quotes && !in_double_quotes && !in_back_ticks
+            if c == '('
+                braces += 1
+            elseif c == ')'
+                braces -= 1
+            elseif c == '['
+                brackets += 1
+            elseif c == ']'
+                brackets -= 1
+            elseif c == '\''
+                in_single_quotes = true
+            elseif c == '"'
+                in_double_quotes = true
+            elseif c == '`'
+                in_back_ticks = true
+            end
+        else
+            if !in_back_ticks && !in_double_quotes && c == '\''
+                in_single_quotes = !in_single_quotes
+            elseif !in_back_ticks && !in_single_quotes && c == '"'
+                in_double_quotes = !in_double_quotes
+            elseif !in_single_quotes && !in_double_quotes && c == '`'
+                in_back_ticks = !in_back_ticks
+            end
+        end
+        braces == 1 && break
+        brackets == 1 && break
+    end
+    braces != 1 && brackets!= 1 && return 0:-1, -1
+    method_name_end = reverseind(r, i)
+    startind = nextind(s, rsearch(s, Base.REPLCompletions.non_identifier_chars, method_name_end))
+    return startind:endof(s), method_name_end, braces==1 ? true : false
+end
+
+
+#This is nearly the same function as in Base.
+function Base.REPLCompletions.completions(string::AbstractString, pos)
     # First parse everything up to the current position
     partial = string[1:pos]
     inc_tag = Base.syntax_deprecation_warnings(false) do
         Base.incomplete_tag(parse(partial, raise=false))
     end
 
+    #Here starts the extra code for this package, we are looking especially for cases where we are either in a function or in a non-closed string.
     #This is the extra check if the string ends with " inside function call
     if inc_tag in [:other,:string]
         if inc_tag==:other
@@ -38,22 +88,22 @@ function Base.REPLCompletions.completions(string, pos)
                 Base.incomplete_tag(parse(newpartial, raise=false))
             end
         end
-        frange, method_name_end = Base.REPLCompletions.find_start_brace(newpartial)
+        frange, method_name_end, is_brace = find_start_brace_or_bracket(newpartial)
         ex = Base.syntax_deprecation_warnings(false) do
-            parse(newpartial[frange] * ")", raise=false)
+            is_brace ? parse(newpartial[frange] * ")", raise=false) : parse(newpartial[frange] * "]", raise=false)
+        end
+        #If ex is a :ref change to getindex call
+        if isa(ex,Expr) && ex.head==:ref
+          ex.head=:call
+          unshift!(ex.args,:getindex)
         end
         if isa(ex, Expr) && ex.head==:call
             success,suggestions=custom_complete_methods(ex)
-            println()
-            println(success)
             if success
                 m = match(r"[\t\n\r\"'/`@\$><=;|&\{]| (?!\\)", reverse(partial))
-                println(m)
                 startpos = nextind(partial, reverseind(partial, m.offset))
                 r = startpos:pos
                 pshort=partial[r]
-                println(suggestions)
-                println(pshort)
                 filter!(x->startswith(x,pshort),suggestions)
                 isempty(suggestions) || return suggestions, r, true
             end
@@ -147,5 +197,6 @@ function Base.REPLCompletions.completions(string, pos)
 end
 
 include("examples.jl")
+@load_examples
 
 end # module
